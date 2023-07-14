@@ -1,0 +1,230 @@
+//Oxygen concentrator arduino code
+
+//code author
+//Nithin Kumar P Rashinkar
+//
+
+/*
+   Receive data sent by the OCS-3F sensor and display it on the 1602LCD
+*/
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <SoftwareSerial.h>
+#include <MD_Parola.h>
+#include <MD_MAX72xx.h>
+#include <SPI.h>
+#define HARDWARE_TYPE MD_MAX72XX::FC16_HW
+#define MAX_DEVICES 16
+#define CS_PIN 3
+int temp, hum, pres; 
+String tempString, humString, presString;
+MD_Parola myDisplay = MD_Parola(HARDWARE_TYPE, CS_PIN, MAX_DEVICES);
+SoftwareSerial sensor(9, 8);//rx,tx
+LiquidCrystal_I2C lcd(0x27, 16, 2); // set the LCD address to 0x27 for a 16 chars and 2 line display
+unsigned long timer = 0;
+static int sec1 = 0;
+static int sec10 = 0;
+static int min1 = 0;
+static int min10 = 0;
+static int hrs1 = 0;
+static int hrs10 = 0;
+
+void setup()
+{
+  lcd.init();                      // initialize the lcd
+  lcd.backlight();
+  Serial.begin(9600);
+  Serial.print("oxygen sensor");
+  
+   sensor.begin(9600);
+  myDisplay.begin();
+  // Set the intensity (brightness) of the display (0-15):
+  myDisplay.setIntensity(6);
+  // Clear the display:
+  myDisplay.displayClear();   
+}
+
+void loop()
+{
+  typedef unsigned char u8;
+  typedef unsigned int u16;
+  int inByte;
+  u8 temp;
+  u8 i, j, o2[12];
+  u16 o2c, o2f, o2t; //Define oxygen concentration, flow rate and temperature
+
+  // when characters arrive over the serial port...
+  if (sensor.available()) {
+    // wait a bit for the entire message to arrive
+    delay(100);
+    // clear the screen
+    lcd.clear();
+    // read all the available characters
+    while (sensor.available() > 0) {
+
+      inByte = sensor.read();
+      
+      //---Receiving part---
+      if ((o2[0] == 0x16) && (o2[1] == 0x09) && (o2[2] == 0x01)) //Determine if the first two bytes are received correctly, I is the global variable
+      {
+        o2[i] = inByte;       
+        i++;
+      }
+      else           //If one of the first three bytes received is incorrect, the first two bytes will be judged
+      {
+        if ((o2[0] == 0x16) && (o2[1] == 0x09))
+        {
+          if ( inByte == 0x01)   
+          {
+            o2[2] =  inByte;   
+            i++;
+          }
+          else                                
+          {
+            i = 0;                
+            for (j = 0; j < 12; j++)          
+            {
+              o2[j] = 0;
+            }
+          }
+        }
+        else     
+        {
+          if (o2[0] == 0x16)
+          {
+            if ( inByte == 0x09)
+            {
+              o2[1] =  inByte; 
+              i++;
+            }
+            else        
+            {
+              i = 0;                
+              for (j = 0; j < 12; j++)          
+              {
+                o2[j] = 0;
+              }
+            }
+          }
+          else     
+          {
+            if ( inByte == 0x16) 
+            {
+              o2[0] =  inByte; 
+              i++;
+            }
+            else         
+            {
+              i = 0;                 
+              for (j = 0; j < 12; j++)         
+              {
+                o2[j] = 0;
+              }
+            }
+          }
+        }
+      }
+     //---Receiving part---
+
+
+
+      if (i == 12)   //Data received complete, start calibration
+      {
+        temp = 0;
+        for (j = 0; j < 12; j++)
+        {
+          temp += o2[j];
+        }
+        if (temp == 0)     //Check passed, calculate oxygen concentration, flow, temperature value
+        {
+          o2c = o2[3] * 256 + o2[4];     //Oxygen concentration
+          o2f = o2[5] * 256 + o2[6];     //Oxygen flow value
+          o2t = o2[7] * 256 + o2[8];     //Oxygen temperature
+        }
+
+      
+
+        i = 0;                             
+        for (j = 0; j < 12; j++)           //Initialize array
+        {
+          o2[j] = 0;
+        }
+
+    //---O2
+     lcd.setCursor(0, 0);               //Set the display pointer
+     lcd.print("O2c:");
+     lcd.setCursor(5, 0);              
+     lcd.print(o2c/100);
+     lcd.print(o2c/10%10);
+     lcd.print(".");
+     lcd.print(o2c%10);
+     lcd.print("%");
+     //humString  = "    "+String(o2t/10)+"."+String(o2t%10)+"C"+" "+String(hrs10)+String(hrs1)+":"+String(min10)+String(min1)+String(o2c/10) +"."+String(o2c%10)+"%"+String(o2f/10)+"."+String(o2f%10)+"L" ;
+     humString  =  "    "+String(hrs10)+String(hrs1)+":"+String(min10)+String(min1)+" "+String(o2f/10)+"."+String(o2f%10)+"L"+"  "+String(o2t/10)+"."+String(o2t%10)+"C "+String(o2c/10) +"."+String(o2c%10)+"%";
+     myDisplay.print(humString);
+     Serial.print(o2c);
+     Serial.print("o2:");
+     Serial.print(o2c/100);
+     Serial.print(o2c/10%10);
+     Serial.print(".");
+     Serial.print(o2c%10);
+     Serial.print("%");
+
+    //---Flow
+     lcd.setCursor(0, 1);               
+     lcd.print("Flow:");
+     lcd.setCursor(6, 1);              
+     lcd.print(o2f/10%10);
+     lcd.print(".");
+     lcd.print(o2f%10);
+     lcd.print("L/min");
+     Serial.print("Flow:");
+     Serial.print(o2f/10%10);
+     Serial.print(".");
+     int FR = o2f%10;
+     if (FR<=1){
+      FR=0;
+     }
+     
+     Serial.print(FR);
+     Serial.println("L?min");
+     Serial.print("Temp:");
+     Serial.print(o2t%10%10);
+     Serial.print(".");
+     Serial.print(o2t%10);
+     Serial.println("^C");
+      }
+
+
+    }
+  }
+  timer = millis();
+if (timer >= 1000) {
+  sec1 = sec1 + 1;
+  timer = 0;
+}
+if (sec1 == 10) {
+  sec10 = sec10 + 1 ;
+  sec1 = 0;
+}
+if (sec10 == 6) {
+  min1 = min1 + 1;
+  sec10 = 0;
+}
+if (min1 == 10) {
+  min10 = min10 + 1;
+  min1 = 0;
+}
+if (min10 == 6) {
+  hrs1 = hrs1 + 1;
+  min10 = 0;
+}
+if (hrs1 == 10) {
+  hrs10 = hrs10 + 1;
+  hrs1 = 0;
+}
+Serial.print(hrs10); Serial.print(hrs1); Serial.print(":");
+Serial.print(min10); Serial.print(min1); Serial.print(":");
+Serial.print(sec10); Serial.println(sec1);
+delay(1000);
+}
